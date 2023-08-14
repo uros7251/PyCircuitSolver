@@ -1,0 +1,4 @@
+1. Implement optimization algos like GD with line search or conjugate gradient method (current ones are bad!)
+2. Document methods of TwoTerminalComponent
+3. Write more tests
+4. Write README
