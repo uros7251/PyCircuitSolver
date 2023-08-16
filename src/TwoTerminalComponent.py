@@ -13,6 +13,9 @@ class ComponentType(Enum):
     PARALLEL = 8
 
 class TwoTerminalComponent():
+    """
+    Base class representing linear electric components with two terminals (ends). 
+    """
     characteristic: CurrentVoltageCharacteristic
     state: tuple[complex, complex] | tuple[Value, Value]
     omega: float
@@ -24,10 +27,16 @@ class TwoTerminalComponent():
     
     @property
     def current(self) -> complex | Value:
+        """
+        Returns current flowing through the component.
+        """
         return self.state[0] if self.state else None
     
     @property
     def voltage(self) -> complex | Value:
+        """
+        Returns voltage difference between two terminals.
+        """
         return self.state[1] if self.state else None
     
     @property
@@ -35,31 +44,90 @@ class TwoTerminalComponent():
         pass
 
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
+        """
+        Calculates current-voltage characteristic.
+        
+        Parameters:
+        -----------
+        omega: float
+            Angular frequency at which current-voltage characteristic ought to be calculated
+        Returns:
+        Current-voltage characteristic
+        """
         pass
 
     def current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
+        """
+        Returns current-voltage characteristic. If it was already calculated earlier for the provided omega, it is not calculated again, but cached object is returned.
+        
+        Parameters:
+        -----------
+        omega: float
+            Angular frequency at which current-voltage characteristic ought to be calculated
+        Returns:
+        Current-voltage characteristic
+        """
         if self.characteristic is None or self.omega != omega:
             self.omega = omega
             self.characteristic = self.calculate_current_voltage_characteristic(omega)
         return self.characteristic  
     
-    def apply_current(self, current: Value | complex, omega: float = 0, recursive: bool = False):
+    def apply_current(self, current: Value | complex, omega: float = 0, recursive: bool = False) -> None:
+        """
+        Imposes current flowing through the component. This operation affects the electric state of the component.
+
+        Parameters:
+        -----------
+        current: Value | Complex
+            Current flowing through the component
+        omega: float
+            Angular frequency
+        recursive: bool
+            Should a change of state of the component be propagated to its children? 
+        """
         self.state = (current,
                       self.current_voltage_characteristic(omega).voltage_at_current(current))
     
-    def apply_voltage(self, voltage: Value | complex, omega: float = 0, recursive: bool = False):
+    def apply_voltage(self, voltage: Value | complex, omega: float = 0, recursive: bool = False) -> None:
+        """
+        Imposes voltage difference across terminals of the component. This operation affects the electric state of the component.
+
+        Parameters:
+        -----------
+        voltage: Value | Complex
+            Voltage across terminals of the component
+        omega: float
+            Angular frequency
+        recursive: bool
+            Should a change of state of the component be propagated to its children? 
+        """
         self.state = (self.current_voltage_characteristic(omega).current_at_voltage(voltage),
                       voltage)
     
-    def reverse(self):
+    def reverse(self) -> 'TwoTerminalComponent':
+        """
+        Returns the component flipped.
+        """
         return self
     
-    def in_series_with(self, other):
+    def in_series_with(self, other) -> 'TwoTerminalComponent':
+        """
+        Combines two components in series.
+
+        Returns:
+        Resulting component
+        """
         if other.component_type == ComponentType.SERIES:
             return other.in_series_with(self)
         return Series().add_component(self).add_component(other)
     
-    def in_parallel_with(self, other):
+    def in_parallel_with(self, other) -> 'TwoTerminalComponent':
+        """
+        Combines two components in parallel.
+
+        Returns:
+        Resulting component
+        """
         if other.component_type == ComponentType.PARALLEL:
             return other.in_parallel_with(self)
         return Parallel().add_component(self).add_component(other)
@@ -78,6 +146,9 @@ class TwoTerminalComponent():
         return self.in_parallel_with(other)
     
 class ComplexValuedTwoTerminalComponent(TwoTerminalComponent):
+    """
+    Base class for linear electric components which have to be characterized by a complex value.
+    """
     value: complex
 
     def __init__(self, label: str, value: complex, unit: SIPrefix = SIPrefix.Nil) -> None:
@@ -85,6 +156,9 @@ class ComplexValuedTwoTerminalComponent(TwoTerminalComponent):
         self.value = value * get_prefix_value(unit)
 
 class RealValuedTwoTerminalComponent(TwoTerminalComponent):
+    """
+    Base class for linear electric components which can be characterized by a real value.
+    """
     value: float
 
     def __init__(self, label: str, value: float, unit: SIPrefix = SIPrefix.Nil) -> None:
@@ -92,6 +166,9 @@ class RealValuedTwoTerminalComponent(TwoTerminalComponent):
         self.value = value * get_prefix_value(unit)
 
 class CompositeTwoTerminalComponent(TwoTerminalComponent):
+    """
+    Base class for linear electric components which consist of other linear electric components.
+    """
     components: list[TwoTerminalComponent]
 
     def __init__(self, label: str) -> None:
@@ -105,7 +182,9 @@ class CompositeTwoTerminalComponent(TwoTerminalComponent):
         pass
 
 class IdealVoltageSource(ComplexValuedTwoTerminalComponent):
-
+    """
+    Represents an ideal voltage source. It is characterized by electromotive force (in AC mode this means both amplitude and phase).
+    """
     @property
     def emf(self) -> complex:
         return self.value
@@ -127,6 +206,9 @@ class IdealVoltageSource(ComplexValuedTwoTerminalComponent):
         return self
 
 class IdealCurrentSource(ComplexValuedTwoTerminalComponent):
+    """
+    Represents an ideal current source. It is characterized by current strength (in AC mode this means both amplitude and phase).
+    """
     @property
     def amperage(self) -> complex:
         return self.value
@@ -148,7 +230,9 @@ class IdealCurrentSource(ComplexValuedTwoTerminalComponent):
         return self
     
 class Resistor(RealValuedTwoTerminalComponent):
-
+    """
+    Represents a resistor. It is characterized by its resistance.
+    """
     @property
     def resistance(self) -> float:
         return self.value
@@ -161,6 +245,9 @@ class Resistor(RealValuedTwoTerminalComponent):
         return CurrentVoltageCharacteristic(True, complex(-self.value, 0), complex(0,0))
     
 class Capacitor(RealValuedTwoTerminalComponent):
+    """
+    Represents a capacitor. It is characterized by its capacitance.
+    """
     @property
     def capacitance(self) -> float:
         return self.value
@@ -173,6 +260,9 @@ class Capacitor(RealValuedTwoTerminalComponent):
         return CurrentVoltageCharacteristic.open_circuit() if omega == 0 else CurrentVoltageCharacteristic(True, complex(0, 1/(omega*self.value)), complex(0,0))
     
 class Inductor(RealValuedTwoTerminalComponent):
+    """
+    Represents an inductor. It is characterized by its inductance.
+    """
     @property
     def inductance(self) -> float:
         return self.value
@@ -185,6 +275,9 @@ class Inductor(RealValuedTwoTerminalComponent):
         return CurrentVoltageCharacteristic.short_circuit() if omega == 0 else CurrentVoltageCharacteristic(True, complex(0, -omega*self.value), complex(0,0))
 
 class Impedance(ComplexValuedTwoTerminalComponent):
+    """
+    Represents a general passive element. It is characterized by its impedance.
+    """
     @property
     def impedance(self) -> float:
         return self.value
@@ -197,6 +290,9 @@ class Impedance(ComplexValuedTwoTerminalComponent):
         return CurrentVoltageCharacteristic(True, -self.value, complex(0,0))
 
 class Series(CompositeTwoTerminalComponent):
+    """
+    Represents a multitude of components connected in series.
+    """
     fixed_current_component: TwoTerminalComponent
 
     @property
@@ -270,6 +366,9 @@ class Series(CompositeTwoTerminalComponent):
         return self
 
 class Parallel(CompositeTwoTerminalComponent):
+    """
+    Represents a multitude of components connected in parallel.
+    """
     fixed_voltage_component: TwoTerminalComponent
 
     @property

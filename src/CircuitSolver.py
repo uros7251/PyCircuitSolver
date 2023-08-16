@@ -2,6 +2,8 @@ from TwoTerminalComponent import *
 from functools import reduce
 import math, cmath
 
+from TwoTerminalComponent import Value
+
 class Branch():
     """
     Wrapper class for a circuit branch consisting of source, sink identifiers and a list of components
@@ -21,36 +23,15 @@ class Optimizer():
     """
     params: list[Value]
 
-    def __init__(self, params) -> None:
+    def __init__(self, params: list[Value]) -> None:
         self.params = params
 
-    def step(self, loss: float = None) -> None:
+    def step(self, loss: float = None) -> Value:
         raise NotImplementedError()
     
     def zero_grad(self) -> None:
         for param in self.params:
             param.grad = 0+0j
-
-class ExponentialBackoffGD(Optimizer):
-    """
-    Increases learning rate exponentially as long as loss is decreasing; reduces it when loss increases between two consecutive iterations (bad)
-    """
-    lr: float
-    loss: float
-    def __init__(self, params, learning_rate = 0.1) -> None:
-        super().__init__(params)
-        self.lr = learning_rate
-        self.loss = float('inf')
-    
-    def step(self, loss: float) -> None:
-        for param in self.params:
-            param.data -= self.lr*param.grad
-        if loss < self.loss:
-            self.lr *= 2
-        else:
-            self.lr /= 16
-        self.loss = loss
-
 
 class Newton(Optimizer):
     """
@@ -61,6 +42,38 @@ class Newton(Optimizer):
         lr = 0.1*loss/grad_norm_sq
         for param in self.params:
             param.data -= lr * param.grad.conjugate()
+
+class Adam(Optimizer):
+    """
+    Implements Adam optimization algorithm. Dynamically adapts learning rate using exponential backoff. (not optimal)
+    """
+    m: list[Value]
+    v: list[Value]
+    BETA_m: float = 0.75
+    BETA_v: float = 0.9
+    beta_m_pow: float = 1
+    beta_v_pow: float = 1
+    lr: float = 1
+    prev_loss: float = float('inf')
+    def __init__(self, params: list[Value]) -> None:
+        super().__init__(params)
+        self.v, self.m = [], []
+        for _ in range(len(self.params)):
+            self.v.append(0)
+            self.m.append(0+0j)
+
+    def step(self, loss: float) -> Value:
+        self.beta_m_pow *= self.BETA_m
+        self.beta_v_pow *= self.BETA_v
+        if loss > self.prev_loss:
+            self.lr /= 10
+        else:
+            self.lr *= 1.2
+        for i, param in enumerate(self.params):
+            self.m[i] = (self.BETA_m*self.m[i] + (1-self.BETA_m)*param.grad.conjugate())/(1-self.beta_m_pow)
+            self.v[i] = (self.BETA_v*self.v[i] + (1-self.BETA_v)*abs(param.grad)**2) # /(1-self.beta_v_pow)
+            param.data -= self.lr * self.m[i]/(math.sqrt(self.v[i])+1e-30)
+        self.prev_loss = loss
 
 class CircuitSolver():
     """
@@ -79,10 +92,6 @@ class CircuitSolver():
         self._init_nodes()
         self._init_optimizer()
 
-    @staticmethod
-    def _init_value():
-        return Value(0+0j)
-
     def _init_nodes(self):
         """
         Initialize voltages at nodes, currents through branches with constant voltage differences. These are 'learnable parameters'.
@@ -92,6 +101,7 @@ class CircuitSolver():
         self.reference_node = None
         self.node_currents = dict()
         self.node_potentials = dict()
+        self.branch_currents = dict()
         
         for i, branch in enumerate(self.branches):
             if len(branch.components) > 1:
@@ -120,11 +130,11 @@ class CircuitSolver():
         for branch in self.branches:
             if self.reference_node is None:
                 self.reference_node = branch.source
-                self.node_potentials[branch.source] = Value(complex(0))
+                self.node_potentials[branch.source] = Value(0+0j)
             if branch.source not in self.node_potentials:
-                self.node_potentials[branch.source] = CircuitSolver._init_value()
+                self.node_potentials[branch.source] = Value(0+0j)
             if branch.sink not in self.node_potentials:
-                self.node_potentials[branch.sink] = CircuitSolver._init_value()
+                self.node_potentials[branch.sink] = Value(0+0j)
 
     def _init_components_dict(self) -> None:
         """
@@ -144,10 +154,14 @@ class CircuitSolver():
             # skip reference node and nodes whose voltage is not independent of other nodes
             if node_id != self.reference_node and node.is_leaf:
                 learnable_params.append(node)
-        for current in self.node_currents.values():
+        for current in self.branch_currents.values():
             learnable_params.append(current)
-        # change optimizing algorithm here
-        self.optimizer = Newton(learnable_params)
+        self.optimizer = Adam(learnable_params)
+
+    def _update_dependent_nodes(self):
+        for node in self.node_potentials.values():
+            if not node.is_leaf:
+                node.data = node.inputs[0].data + node.inputs[1]
 
     def solve(self, omega: float = 0.) -> tuple[list[Value], dict[int, Value]]:
         """
@@ -162,18 +176,17 @@ class CircuitSolver():
         history = []
 
         for i in range(MAX_EPOCHS):
-            for node_id in self.node_potentials:
-                self.node_currents[node_id] = 0.
-            
             loss = self._loss(omega)
             history.append(loss.data.real)
 
-            if i > 0 and math.isclose(loss.data.real, 0, abs_tol=1e-30):
+            if math.isclose(loss.data.real, 0, abs_tol=1e-30) or (i > 0 and math.isclose(history[-2], loss.data.real)):
                 break
-            
+
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step(loss.data.real)
+            # not forget to update dependent nodes
+            self._update_dependent_nodes()
         
         self._apply_node_voltages(omega)
 
@@ -189,7 +202,12 @@ class CircuitSolver():
         -----------
         omega: float
             Angular frequency of all the energy sources in the circuit
+
+        Returns:
+        loss: float
         """
+        for node_id in self.node_potentials:
+            self.node_currents[node_id] = 0.
         for j, branch in enumerate(self.branches):
             if branch.components.component_type == ComponentType.IDEAL_VOLTAGE_SOURCE:
                 branch.components.apply_current(self.branch_currents[j], recursive=False)

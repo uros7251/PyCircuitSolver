@@ -1,8 +1,8 @@
-
+from typing import Union
 class Value:
     """ stores a single scalar value and its gradient """
 
-    def __init__(self, data: complex, _children=(), _op=''):
+    def __init__(self, data: complex, _children: tuple['Value', Union['Value', complex]]=(), _op=''):
         self.data: complex = data
         self.grad: complex = 0
         # internal variables used for autograd graph construction
@@ -19,7 +19,7 @@ class Value:
                 other.grad += out.grad
             out._backward = _backward
         else:
-            out = Value(self.data + other, (self,), '+')
+            out = Value(self.data + other, (self,other), '+')
 
             def _backward():
                 self.grad += out.grad
@@ -35,7 +35,7 @@ class Value:
                 other.grad += self.data*out.grad
             out._backward = _backward
         else:
-            out = Value(self.data * other, (self,), '*')
+            out = Value(self.data * other, (self, other), '*')
 
             def _backward():
                 self.grad += other*out.grad
@@ -65,6 +65,10 @@ class Value:
     def is_leaf(self):
         return self._op == ''
     
+    @property
+    def inputs(self) -> tuple['Value']:
+        return self._prev
+    
     def backward(self):
 
         # topological order all of the children in the graph
@@ -74,7 +78,8 @@ class Value:
             if v not in visited:
                 visited.add(v)
                 for child in v._prev:
-                    build_topo(child)
+                    if isinstance(child, Value):
+                        build_topo(child)
                 topo.append(v)
         build_topo(self)
 
