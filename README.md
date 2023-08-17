@@ -58,3 +58,4 @@ which will print:
 ```
 Current at R4: (0.013333333333350026+0j) A
 ```
+For more examples, you are encouraged to take a look at tests in ```tests/test_circuit_solver.py```.
