@@ -7,7 +7,7 @@ class Value:
         self.grad: complex = 0
         # internal variables used for autograd graph construction
         self._backward = lambda: None
-        self._prev = set(_children)
+        self._prev = _children
         self._op = _op # the op that produced this node, for graphviz / debugging / etc
 
     def __add__(self, other):
@@ -66,7 +66,7 @@ class Value:
         return self._op == ''
     
     @property
-    def inputs(self) -> tuple['Value']:
+    def inputs(self) -> tuple['Value', Union[float, 'Value']]:
         return self._prev
     
     def backward(self):
@@ -77,7 +77,7 @@ class Value:
         def build_topo(v):
             if v not in visited:
                 visited.add(v)
-                for child in v._prev:
+                for child in set(v._prev):
                     if isinstance(child, Value):
                         build_topo(child)
                 topo.append(v)

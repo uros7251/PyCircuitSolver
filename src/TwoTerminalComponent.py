@@ -72,7 +72,7 @@ class TwoTerminalComponent():
             self.characteristic = self.calculate_current_voltage_characteristic(omega)
         return self.characteristic  
     
-    def apply_current(self, current: Value | complex, omega: float = 0, recursive: bool = False) -> None:
+    def apply_current(self, current: Value | complex, omega: float = 0, recursive: bool = True) -> None:
         """
         Imposes current flowing through the component. This operation affects the electric state of the component.
 
@@ -88,7 +88,7 @@ class TwoTerminalComponent():
         self.state = (current,
                       self.current_voltage_characteristic(omega).voltage_at_current(current))
     
-    def apply_voltage(self, voltage: Value | complex, omega: float = 0, recursive: bool = False) -> None:
+    def apply_voltage(self, voltage: Value | complex, omega: float = 0, recursive: bool = True) -> None:
         """
         Imposes voltage difference across terminals of the component. This operation affects the electric state of the component.
 
@@ -339,7 +339,7 @@ class Series(CompositeTwoTerminalComponent):
         for component in self.components:
             component.apply_current(current, omega, recursive)
 
-    def apply_voltage(self, voltage: Value | complex, omega: float, recursive: bool = True):
+    def apply_voltage(self, voltage: Value | complex, omega: float = 0, recursive: bool = True):
         super().apply_voltage(voltage, omega)
         if not recursive:
             return
@@ -416,7 +416,7 @@ class Parallel(CompositeTwoTerminalComponent):
         if self.fixed_voltage_component:
             self.fixed_voltage_component.apply_current(current, omega, recursive)
 
-    def apply_voltage(self, voltage: Value | complex, omega: float, recursive: bool = True):
+    def apply_voltage(self, voltage: Value | complex, omega: float = 0, recursive: bool = True):
         if self.fixed_voltage_component:
             raise Exception('Cannot apply voltage to constant-voltage component')
         super().apply_voltage(voltage, omega)

@@ -39,7 +39,7 @@ class Newton(Optimizer):
     """
     def step(self, loss: float) -> None:
         grad_norm_sq = reduce(lambda acc, param: acc + abs(param.grad)**2, self.params, 0.0)
-        lr = 0.1*loss/grad_norm_sq
+        lr = 0.01*loss/grad_norm_sq
         for param in self.params:
             param.data -= lr * param.grad.conjugate()
 
@@ -114,9 +114,10 @@ class CircuitSolver():
                 if self.reference_node is None:
                     self.reference_node = branch.source
                     self.node_potentials[branch.source] = Value(0)
+                    self.node_potentials[branch.sink] = self.node_potentials[branch.source] - voltage_delta
                 elif branch.source not in self.node_potentials:
                     if branch.sink not in self.node_potentials:
-                        self.node_potentials[branch.source] = CircuitSolver._init_value()
+                        self.node_potentials[branch.source] = Value(0)
                         self.node_potentials[branch.sink] = self.node_potentials[branch.source] - voltage_delta
                     else:
                         self.node_potentials[branch.source] = self.node_potentials[branch.sink] + voltage_delta
@@ -125,7 +126,7 @@ class CircuitSolver():
                         self.node_potentials[branch.sink] = self.node_potentials[branch.source] - voltage_delta
                     elif not cmath.isclose(self.node_potentials[branch.source].data - self.node_potentials[branch.sink].data, voltage_delta):
                         raise RuntimeError(f'Configuration invalid: nodes {branch.source}, {branch.sink}!')
-                self.branch_currents[i] = CircuitSolver._init_value()
+                self.branch_currents[i] = Value(0)
         
         for branch in self.branches:
             if self.reference_node is None:
@@ -179,7 +180,7 @@ class CircuitSolver():
             loss = self._loss(omega)
             history.append(loss.data.real)
 
-            if math.isclose(loss.data.real, 0, abs_tol=1e-30) or (i > 0 and math.isclose(history[-2], loss.data.real)):
+            if math.isclose(loss.data.real, 0, abs_tol=1e-30) or (i > 0 and math.isclose(history[-2], loss.data.real, rel_tol=1e-15)):
                 break
 
             self.optimizer.zero_grad()
@@ -213,7 +214,7 @@ class CircuitSolver():
                 branch.components.apply_current(self.branch_currents[j], recursive=False)
             else:
                 voltage_diff = self.node_potentials[branch.source]-self.node_potentials[branch.sink]
-                branch.components.apply_voltage(voltage_diff, omega, recursive=True)
+                branch.components.apply_voltage(voltage_diff, omega, recursive=False)
             self.node_currents[branch.source] += branch.components.current
             self.node_currents[branch.sink] -= branch.components.current
 
@@ -230,8 +231,12 @@ class CircuitSolver():
             Angular frequency of all the energy sources in the circuit
         """
         for branch in self.branches:
+            if branch.components.component_type == ComponentType.IDEAL_VOLTAGE_SOURCE:
+                continue
             voltage_diff = self.node_potentials[branch.source].data - self.node_potentials[branch.sink].data
             branch.components.apply_voltage(voltage_diff, omega, recursive=True)
+        for branch_id, current in self.branch_currents.items():
+            self.branches[branch_id].components.apply_current(current.data, omega, recursive=True)
 
     def state_at(self, label: str) -> tuple[complex, complex] | None:
         """
