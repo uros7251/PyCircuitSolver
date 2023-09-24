@@ -104,10 +104,12 @@ class CircuitSolver():
         self.branch_currents = dict()
         
         for i, branch in enumerate(self.branches):
-            if len(branch.components) > 1:
-                branch.components = reduce(lambda a, b: a & b, branch.components, Series())
-            else:
+            assert len(branch.components) > 0, "branche has to have at least one component!"
+            if len(branch.components) == 1:
                 branch.components = branch.components[0]
+            else:
+                branch.components = reduce(lambda a, b: a & b, branch.components, Series())
+                
             # first we only insert ideal voltage source components
             if branch.components.component_type == ComponentType.IDEAL_VOLTAGE_SOURCE:
                 voltage_delta = branch.components.current_voltage_characteristic(omega=0).free_coefficient
