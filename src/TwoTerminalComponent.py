@@ -145,6 +145,14 @@ class TwoTerminalComponent():
             raise Exception('Invalid operands!')
         return self.in_parallel_with(other)
     
+    @staticmethod
+    def ammeter(label: str) -> 'TwoTerminalComponent':
+        return IdealVoltageSource(label, 0)
+    
+    @staticmethod
+    def voltmeter(label: str) -> 'TwoTerminalComponent':
+        return IdealCurrentSource(label, 0)
+    
 class ComplexValuedTwoTerminalComponent(TwoTerminalComponent):
     """
     Base class for linear electric components which have to be characterized by a complex value.
@@ -198,7 +206,7 @@ class IdealVoltageSource(ComplexValuedTwoTerminalComponent):
         return ComponentType.IDEAL_VOLTAGE_SOURCE
     
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
-        return CurrentVoltageCharacteristic(True, complex(0,0), self.value)
+        return CurrentVoltageCharacteristic(True, 0, self.value)
     
     def reverse(self):
         self.value = -self.value
@@ -222,7 +230,7 @@ class IdealCurrentSource(ComplexValuedTwoTerminalComponent):
         return ComponentType.IDEAL_CURRENT_SOURCE
     
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
-        return CurrentVoltageCharacteristic(False, complex(1,0), self.value)
+        return CurrentVoltageCharacteristic(False, 1, self.value)
     
     def reverse(self):
         self.value = -self.value
@@ -242,7 +250,7 @@ class Resistor(RealValuedTwoTerminalComponent):
         return ComponentType.RESISTOR
     
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
-        return CurrentVoltageCharacteristic(True, complex(-self.value, 0), complex(0,0))
+        return CurrentVoltageCharacteristic(True, -self.value, 0)
     
 class Capacitor(RealValuedTwoTerminalComponent):
     """
@@ -257,7 +265,8 @@ class Capacitor(RealValuedTwoTerminalComponent):
         return ComponentType.CAPACITOR
     
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
-        return CurrentVoltageCharacteristic.open_circuit() if omega == 0 else CurrentVoltageCharacteristic(True, complex(0, 1/(omega*self.value)), complex(0,0))
+        assert not self.value == 0
+        return CurrentVoltageCharacteristic.open_circuit() if omega == 0 else CurrentVoltageCharacteristic(True, 1j/(omega*self.value), 0)
     
 class Inductor(RealValuedTwoTerminalComponent):
     """
@@ -272,7 +281,7 @@ class Inductor(RealValuedTwoTerminalComponent):
         return ComponentType.INDUCTOR
     
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
-        return CurrentVoltageCharacteristic.short_circuit() if omega == 0 else CurrentVoltageCharacteristic(True, complex(0, -omega*self.value), complex(0,0))
+        return CurrentVoltageCharacteristic.short_circuit() if omega == 0 else CurrentVoltageCharacteristic(True, -1j*omega*self.value, 0)
 
 class Impedance(ComplexValuedTwoTerminalComponent):
     """
@@ -287,7 +296,7 @@ class Impedance(ComplexValuedTwoTerminalComponent):
         return ComponentType.IMPEDANCE
     
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
-        return CurrentVoltageCharacteristic(True, -self.value, complex(0,0))
+        return CurrentVoltageCharacteristic(True, -self.value, 0)
 
 class Series(CompositeTwoTerminalComponent):
     """
