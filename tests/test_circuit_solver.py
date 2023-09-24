@@ -1,6 +1,6 @@
 import sys
 sys.path.append("./src")
-from CircuitSolver import *
+from circuit_solver import *
 from cmath import isclose
 
 

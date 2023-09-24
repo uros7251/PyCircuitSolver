@@ -1,6 +1,6 @@
-from CurrentVoltageCharacteristic import CurrentVoltageCharacteristic, Value
+from current_voltage_characteristic import CurrentVoltageCharacteristic, Value
 from enum import Enum
-from SIUnits import *
+from si_units import *
 
 class ComponentType(Enum):
     IDEAL_VOLTAGE_SOURCE = 1

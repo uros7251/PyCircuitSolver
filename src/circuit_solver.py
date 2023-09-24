@@ -1,8 +1,8 @@
-from TwoTerminalComponent import *
+from two_terminal_component import *
 from functools import reduce
 import math, cmath
 
-from TwoTerminalComponent import Value
+from two_terminal_component import Value
 
 class Branch():
     """

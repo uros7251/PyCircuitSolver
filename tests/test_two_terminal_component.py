@@ -1,6 +1,6 @@
 import sys
 sys.path.append("./src")
-from TwoTerminalComponent import *
+from two_terminal_component import *
 from cmath import isclose, phase, pi
 
 class TestTwoTerminalComponent():
