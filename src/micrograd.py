@@ -1,9 +1,13 @@
 from typing import Union
+from cmath import phase
 class Value:
-    """ stores a single scalar value and its gradient """
+    """
+    Stores a single scalar complex value and its gradient.
+    Gradient is stored as d/dx - i d/dy, where x and y are real and imaginary part, respectively
+    """
 
     def __init__(self, data: complex, _children: tuple['Value', Union['Value', complex]]=(), _op=''):
-        self.data: complex = data
+        self.data: complex = complex(data)
         self.grad: complex = 0
         # internal variables used for autograd graph construction
         self._backward = lambda: None
@@ -42,6 +46,7 @@ class Value:
             out._backward = _backward
         return out
 
+
     def __truediv__(self, other):
         assert isinstance(other, (int, float, complex)), "only supporting division by int/float/complex"
         out = Value(self.data/other, (self,), f'/{other}')
@@ -56,11 +61,38 @@ class Value:
         out = Value(abs(self.data)**2, (self,), f'.abs')
 
         def _backward():
-            self.grad += 2 * self.data.conjugate() * out.grad
+            self.grad += 2 * self.data.conjugate() * out.grad.real
         out._backward = _backward
 
         return out
     
+    def real(self):
+        out = Value(self.data.real, (self,), f'.real')
+
+        def _backward():
+            self.grad += out.grad.real
+        out._backward = _backward
+
+        return out
+    
+    def imag(self):
+        out = Value(1j*self.data.imag, (self,), f'.imag')
+
+        def _backward():
+            self.grad += -1j*out.grad.real
+        out._backward = _backward
+
+        return out
+    
+    def phase(self):
+        out = Value(phase(self.data), (self,), f'.phase')
+
+        def _backward():
+            self.grad += -out.grad.real * (self.data.imag+self.data.real*1j) / abs(self.data)**2
+        out._backward = _backward
+
+        return out
+
     @property
     def is_leaf(self):
         return self._op == ''
