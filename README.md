@@ -35,7 +35,7 @@ e1 = IdealVoltageSource('E1', 1)
 j1 = IdealCurrentSource('J1', 20, SIPrefix.Mili)
 j2 = IdealCurrentSource('J2', 10, SIPrefix.Mili)
 ```
-Unary operator ~ is overloaded to reverse component's orientation. Take a moment to understand why it has been applied to $E_{1}$. Then, we model the circuit by specifying all the branches and pass them to ```CircuitSolver```'s constructor:
+Then, we model the circuit by specifying all the branches and pass them to ```CircuitSolver```'s constructor:
 ```python
 branches = [
     Branch(1, 4, [j1, r1]),
@@ -48,7 +48,7 @@ branches = [
 
 circuit = CircuitSolver(branches=branches)
 ```
-Finally, we call method ```solve()``` of ```CircuitSolver```. After that we can inspect currents and voltages across any of constituent components:
+Unary operator ~ is overloaded to reverse component's orientation. Take a moment to understand why it has been applied to $E_{1}$.Finally, we call method ```solve()``` of ```CircuitSolver```. After that we can inspect currents and voltages across any of constituent components:
 ```python
 circuit.solve()
 
