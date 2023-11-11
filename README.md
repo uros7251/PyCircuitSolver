@@ -48,7 +48,7 @@ branches = [
 
 circuit = CircuitSolver(branches=branches)
 ```
-Unary operator ~ is overloaded to reverse component's orientation. Take a moment to understand why it has been applied to $E_{1}$.Finally, we call method ```solve()``` of ```CircuitSolver```. After that we can inspect currents and voltages across any of constituent components:
+Unary operator ~ is overloaded to reverse component's orientation. Take a moment to understand why it has been applied to $E_{1}$. Finally, we call method ```solve()``` of ```CircuitSolver```. After that we can inspect currents and voltages across any of constituent components:
 ```python
 circuit.solve()
 
