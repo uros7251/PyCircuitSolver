@@ -147,11 +147,11 @@ class TwoTerminalComponent():
     
     @staticmethod
     def ammeter(label: str) -> 'TwoTerminalComponent':
-        return IdealVoltageSource(label, 0)
+        return Ammeter(label)
     
     @staticmethod
     def voltmeter(label: str) -> 'TwoTerminalComponent':
-        return IdealCurrentSource(label, 0)
+        return Voltmeter(label)
     
 class ComplexValuedTwoTerminalComponent(TwoTerminalComponent):
     """
@@ -213,6 +213,13 @@ class IdealVoltageSource(ComplexValuedTwoTerminalComponent):
         self.characteristic = None # force new calculation
         return self
 
+class Ammeter(IdealVoltageSource):
+    """
+    Represents an ammeter. Under the hood, it is just a special case of an ideal voltage source with zero electromotive force.
+    """
+    def __init__(self, label: str) -> None:
+        super().__init__(label, 0)
+
 class IdealCurrentSource(ComplexValuedTwoTerminalComponent):
     """
     Represents an ideal current source. It is characterized by current strength (in AC mode this means both amplitude and phase).
@@ -236,7 +243,14 @@ class IdealCurrentSource(ComplexValuedTwoTerminalComponent):
         self.value = -self.value
         self.characteristic = None # force new calculation
         return self
-    
+
+class Voltmeter(IdealCurrentSource):
+    """
+    Represents a voltmeter. Under the hood, it is just a special case of an ideal current source with zero current strength.
+    """
+    def __init__(self, label: str) -> None:
+        super().__init__(label, 0)
+
 class Resistor(RealValuedTwoTerminalComponent):
     """
     Represents a resistor. It is characterized by its resistance.
