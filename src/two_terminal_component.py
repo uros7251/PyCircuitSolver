@@ -229,7 +229,7 @@ class IdealCurrentSource(ComplexValuedTwoTerminalComponent):
         return self.value
     
     @amperage.setter
-    def emf(self, new_value):
+    def amperage(self, new_value):
         self.value = new_value
 
     @property
@@ -259,6 +259,10 @@ class Resistor(RealValuedTwoTerminalComponent):
     def resistance(self) -> float:
         return self.value
     
+    @resistance.setter
+    def resistance(self, new_value):
+        self.value = new_value
+    
     @property
     def component_type(self) -> ComponentType:
         return ComponentType.RESISTOR
@@ -273,6 +277,10 @@ class Capacitor(RealValuedTwoTerminalComponent):
     @property
     def capacitance(self) -> float:
         return self.value
+    
+    @capacitance.setter
+    def capacitance(self, new_value):
+        self.value = new_value
     
     @property
     def component_type(self) -> ComponentType:
@@ -290,6 +298,10 @@ class Inductor(RealValuedTwoTerminalComponent):
     def inductance(self) -> float:
         return self.value
     
+    @inductance.setter
+    def inductance(self, new_value):
+        self.value = new_value
+    
     @property
     def component_type(self) -> ComponentType:
         return ComponentType.INDUCTOR
@@ -302,8 +314,12 @@ class Impedance(ComplexValuedTwoTerminalComponent):
     Represents a general passive element. It is characterized by its impedance.
     """
     @property
-    def impedance(self) -> float:
+    def impedance(self) -> complex:
         return self.value
+    
+    @impedance.setter
+    def impedance(self, new_value):
+        self.value = new_value
     
     @property
     def component_type(self) -> ComponentType:
@@ -316,7 +332,7 @@ class Series(CompositeTwoTerminalComponent):
     """
     Represents a multitude of components connected in series.
     """
-    fixed_current_component: TwoTerminalComponent
+    fixed_current_component: IdealCurrentSource
 
     @property
     def component_type(self) -> ComponentType:
@@ -392,7 +408,7 @@ class Parallel(CompositeTwoTerminalComponent):
     """
     Represents a multitude of components connected in parallel.
     """
-    fixed_voltage_component: TwoTerminalComponent
+    fixed_voltage_component: IdealVoltageSource
 
     @property
     def component_type(self) -> ComponentType:
