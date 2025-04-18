@@ -6,16 +6,21 @@ from two_terminal_component import Value
 
 class Branch():
     """
-    Wrapper class for a circuit branch consisting of source, sink identifiers and a list of components
+    Wrapper class for a circuit branch, consisting of source and sink identifiers, as well as a list of components.
+    If there is more than one component, they are combined in series.
+    The source and sink are ordered such that source <= sink.
     """
     source: int
     sink: int
-    components: list[TwoTerminalComponent] | TwoTerminalComponent
+    components: TwoTerminalComponent
 
-    def __init__(self, source, sink, components) -> None:
+    def __init__(self, source: int, sink: int, components: list[TwoTerminalComponent]) -> None:
         self.source = source
         self.sink = sink
-        self.components = components
+        self.components = components[0] if len(components) == 1 else reduce(lambda acc, c: acc & c, components, Series())
+        if self.source > self.sink:
+            self.source, self.sink = self.sink, self.source
+            self.components = ~self.components
 
 class Optimizer():
     """
@@ -104,12 +109,6 @@ class CircuitSolver():
         self.branch_currents = dict()
         
         for i, branch in enumerate(self.branches):
-            assert len(branch.components) > 0, "branche has to have at least one component!"
-            if len(branch.components) == 1:
-                branch.components = branch.components[0]
-            else:
-                branch.components = reduce(lambda a, b: a & b, branch.components, Series())
-                
             # first we only insert ideal voltage source components
             if branch.components.component_type == ComponentType.IDEAL_VOLTAGE_SOURCE:
                 voltage_delta = branch.components.current_voltage_characteristic(omega=0).free_coefficient
