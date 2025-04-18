@@ -1,3 +1,4 @@
+from typing import Generator
 from current_voltage_characteristic import CurrentVoltageCharacteristic, Value
 from enum import Enum
 from si_units import *
@@ -24,7 +25,7 @@ class TwoTerminalComponent():
     def __init__(self, label: str) -> None:
         self.label = label
         self.characteristic = None
-    
+
     @property
     def current(self) -> complex | Value:
         """
@@ -42,6 +43,12 @@ class TwoTerminalComponent():
     @property
     def component_type(self) -> ComponentType:
         pass
+    
+    def traverse(self) -> Generator['TwoTerminalComponent', None, None]:
+        """
+        Traverses the component and its children. Returns the component itself or all its descendants.
+        """
+        yield self
 
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
         """
@@ -137,21 +144,16 @@ class TwoTerminalComponent():
     
     def __and__(self, other):
         if not isinstance(other, TwoTerminalComponent):
-            raise Exception('Invalid operands!')
+            raise Exception(f'Invalid operands! The second operand is {type(other).__name__}!')
         return self.in_series_with(other)
     
     def __or__(self, other):
         if not isinstance(other, TwoTerminalComponent):
-            raise Exception('Invalid operands!')
+            raise Exception(f'Invalid operands! The second operand is {type(other).__name__}!')
         return self.in_parallel_with(other)
     
-    @staticmethod
-    def ammeter(label: str) -> 'TwoTerminalComponent':
-        return Ammeter(label)
-    
-    @staticmethod
-    def voltmeter(label: str) -> 'TwoTerminalComponent':
-        return Voltmeter(label)
+    def __iter__(self):
+        yield from self.traverse()
     
 class ComplexValuedTwoTerminalComponent(TwoTerminalComponent):
     """
@@ -182,6 +184,11 @@ class CompositeTwoTerminalComponent(TwoTerminalComponent):
     def __init__(self, label: str) -> None:
         super().__init__(label)
         self.components = list()
+
+    def traverse(self):
+        for component in self.components:
+            yield from component.traverse()
+
     
     def add_component(self, component: TwoTerminalComponent):
         pass
@@ -333,14 +340,19 @@ class Series(CompositeTwoTerminalComponent):
     Represents a multitude of components connected in series.
     """
     fixed_current_component: IdealCurrentSource
+    
+    def __init__(self, label: str = None) -> None:
+        super().__init__(label)
+        self.fixed_current_component = None
 
     @property
     def component_type(self) -> ComponentType:
         return ComponentType.SERIES
     
-    def __init__(self, label: str = None) -> None:
-        super().__init__(label)
-        self.fixed_current_component = None
+    def traverse(self):
+        if self.fixed_current_component:
+            yield self.fixed_current_component
+        yield from super().traverse()
 
     def add_component(self, component: TwoTerminalComponent):
         if component.component_type == ComponentType.IDEAL_CURRENT_SOURCE:
@@ -395,11 +407,14 @@ class Series(CompositeTwoTerminalComponent):
             self.fixed_current_component.reverse()
         if self.characteristic:
             self.characteristic = ~self.characteristic
+        return self
 
     def in_series_with(self, other: TwoTerminalComponent):
         if other.component_type == ComponentType.SERIES:
             for component in other.components:
                 self.add_component(component)
+            if other.fixed_current_component:
+                self.add_component(other.fixed_current_component)
         else:
             self.add_component(other)
         return self
@@ -409,15 +424,20 @@ class Parallel(CompositeTwoTerminalComponent):
     Represents a multitude of components connected in parallel.
     """
     fixed_voltage_component: IdealVoltageSource
-
-    @property
-    def component_type(self) -> ComponentType:
-        return ComponentType.PARALLEL
     
     def __init__(self, label: str = None) -> None:
         super().__init__(label)
         self.fixed_voltage_component = None
 
+    @property
+    def component_type(self) -> ComponentType:
+        return ComponentType.PARALLEL
+    
+    def traverse(self):
+        if self.fixed_voltage_component:
+            yield self.fixed_voltage_component
+        yield from super().traverse()
+    
     def add_component(self, component: TwoTerminalComponent):
         if component.component_type == ComponentType.IDEAL_VOLTAGE_SOURCE:
             if self.fixed_voltage_component is None:
@@ -471,11 +491,14 @@ class Parallel(CompositeTwoTerminalComponent):
             self.fixed_voltage_component.reverse()
         if self.characteristic:
             self.characteristic = ~self.characteristic
+        return self
 
     def in_parallel_with(self, other: TwoTerminalComponent):
         if other.component_type == ComponentType.PARALLEL:
             for component in other.components:
                 self.add_component(component)
+            if other.fixed_voltage_component:
+                self.add_component(other.fixed_voltage_component)
         else:
             self.add_component(other)
         return self
