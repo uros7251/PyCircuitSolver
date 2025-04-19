@@ -31,7 +31,7 @@ class Optimizer():
     def __init__(self, params: list[Value]) -> None:
         self.params = params
 
-    def step(self, loss: float = None) -> Value:
+    def step(self, loss: float = None) -> None:
         raise NotImplementedError()
     
     def zero_grad(self) -> None:
@@ -42,7 +42,7 @@ class Newton(Optimizer):
     """
     Calculates learning rate based on current loss and gradient norm (bad)
     """
-    def step(self, loss: float) -> None:
+    def step(self, loss: float):
         grad_norm_sq = reduce(lambda acc, param: acc + abs(param.grad)**2, self.params, 0.0)
         lr = 0.01*loss/grad_norm_sq
         for param in self.params:
@@ -67,7 +67,7 @@ class Adam(Optimizer):
             self.v.append(0)
             self.m.append(0+0j)
 
-    def step(self, loss: float) -> Value:
+    def step(self, loss: float):
         self.beta_m_pow *= self.BETA_m
         self.beta_v_pow *= self.BETA_v
         if loss > self.prev_loss:
@@ -82,17 +82,17 @@ class Adam(Optimizer):
 
 class CircuitSolver():
     """
-    Encapsulates logic for solving linear electric circuits 
+    Encapsulates logic for solving linear electric circuits.
     """
     reference_node: int | None
-    node_potentials: dict[int, Value | complex]
-    node_currents: dict[int, Value]
-    branch_currents: dict[int, Value]
+    node_potentials: dict[int, Value | complex] = {}
+    node_currents: dict[int, Value] = {}
+    branch_currents: dict[int, Value] = {}
     optimizer: Optimizer
-    components: dict[str, TwoTerminalComponent]
+    components: dict[str, TwoTerminalComponent] = {}
 
     def __init__(self, branches: list[Branch]) -> None:
-        self.branches = branches
+        self.branches = CircuitSolver.reduce_circuit(branches)
         self._init_components_dict()
         self._init_nodes()
         self._init_optimizer()
@@ -102,16 +102,12 @@ class CircuitSolver():
         Initialize voltages at nodes, currents through branches with constant voltage differences. These are 'learnable parameters'.
         """
         # TODO: write tests for this function
-
         self.reference_node = None
-        self.node_currents = dict()
-        self.node_potentials = dict()
-        self.branch_currents = dict()
         
         for i, branch in enumerate(self.branches):
             # first we only insert ideal voltage source components
             if branch.components.component_type == ComponentType.IDEAL_VOLTAGE_SOURCE:
-                voltage_delta = branch.components.current_voltage_characteristic(omega=0).free_coefficient
+                voltage_delta = branch.components.emf * branch.components.orientation
                 if self.reference_node is None:
                     self.reference_node = branch.source
                     self.node_potentials[branch.source] = Value(0)
@@ -142,7 +138,6 @@ class CircuitSolver():
         """
         A dict of components is maintained to enable queries on state of components.
         """
-        self.components = dict()
         for branch in self.branches:
             for component in branch.components:
                 self.components[component.label] = component
@@ -167,38 +162,141 @@ class CircuitSolver():
 
     def solve(self, omega: float = 0.) -> tuple[list[Value], dict[int, Value]]:
         """
-        Finds the correct node voltages and branch currents via loss minimization
+        Finds the correct node voltages and branch currents via loss minimization.
 
         Parameters:
         -----------
         omega: float
             Angular frequency of all the energy sources in the circuit
+        Returns:
+        history: list[float]
+            History of loss values during the optimization process
+        potentials: dict[int, complex]
+            Dictionary of node voltages, where key is the node identifier and value is the voltage at that node
         """
         MAX_EPOCHS = int(1e4)
         history = []
 
-        for i in range(MAX_EPOCHS):
-            loss = self._loss(omega)
-            history.append(loss.data.real)
+        if len(self.branches) == 1:
+            component = self.branches[0].components
+            if component.component_type in [ComponentType.IDEAL_VOLTAGE_SOURCE, ComponentType.PARALLEL]:
+                component.apply_current(current= 0, omega=omega, recursive=True)
+            else:
+                component.apply_voltage(voltage=0, omega=omega, recursive=True)
+        else:
+            for i in range(MAX_EPOCHS):
+                loss = self._loss(omega)
+                history.append(loss.data.real)
 
-            if math.isclose(loss.data.real, 0, abs_tol=1e-30) or (i > 0 and math.isclose(history[-2], loss.data.real, rel_tol=1e-15)):
-                break
+                if math.isclose(loss.data.real, 0, abs_tol=1e-30) or (i > 0 and math.isclose(history[-2], loss.data.real, rel_tol=1e-15)):
+                    break
 
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step(loss.data.real)
-            # not forget to update dependent nodes
-            self._update_dependent_nodes()
-        
-        self._apply_node_voltages(omega)
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step(loss.data.real)
+                # not forget to update dependent nodes
+                self._update_dependent_nodes()
+            
+            self._apply_node_voltages(omega)
 
         return history, {key: value for key, value in zip(self.node_potentials.keys(), map(lambda v: CircuitSolver._round_complex(v.data), self.node_potentials.values()))}
     
+    @staticmethod
+    def _reduce_series(initial_branches: list[Branch]) -> list[Branch]:
+        """
+        Combine branches in the circuit in series.
+        """
+        # Create a mapping from nodes to branches
+        node_to_branches: dict[int, list[Branch]] = {}
+        for branch in initial_branches:
+            if branch.source not in node_to_branches:
+                node_to_branches[branch.source] = []
+            node_to_branches[branch.source].append(branch)
+            if branch.sink == branch.source:
+                continue
+            if branch.sink not in node_to_branches:
+                node_to_branches[branch.sink] = []
+            node_to_branches[branch.sink].append(branch)
+
+        # Helper function to get the other terminal of a branch
+        def other_terminal(branch: Branch, node: int) -> int:
+            """
+            Get the other terminal of a branch given one terminal.
+            """
+            return branch.sink if branch.source == node else branch.source
+
+        for node, branches in node_to_branches.items():
+            # Check if the node is redundant
+            if len(branches) == 2:
+                # Order by the other terminal
+                sorted_branches = sorted(branches, key=lambda b: other_terminal(b, node))
+                # Should we invert the components?
+                invert = [(node == b.source) ^ (i == 1) for i, b in enumerate(sorted_branches)]
+                merged_component = reduce(lambda acc, c: acc & c, \
+                                        map(lambda b, i: ~b.components if i else b.components, sorted_branches, invert), \
+                                            Series())
+                # Create a new branch with the merged component
+                source = other_terminal(sorted_branches[0], node)
+                sink = other_terminal(sorted_branches[1], node)
+                new_branch = Branch(source, sink, [merged_component])
+                # Replace the branches in the node_to_branches dictionary
+                node_to_branches[source].remove(sorted_branches[0])
+                node_to_branches[sink].remove(sorted_branches[1])
+                node_to_branches[source].append(new_branch)
+                if source != sink:
+                    node_to_branches[sink].append(new_branch)
+                node_to_branches[node].clear()
+        
+        resulting_branches = []
+        for node, branches in node_to_branches.items():
+            for branch in branches:
+                if node == branch.source:
+                    resulting_branches.append(branch)
+        return resulting_branches
+
+    @staticmethod
+    def _reduce_parallel(initial_branches: list[Branch]) -> list[Branch]:
+        """
+        Combine branches in the circuit in parallel.
+        """
+        terminals_to_branches: dict[tuple[int, int], list[Branch]] = {}
+        for branch in initial_branches:
+            assert(branch.source <= branch.sink)
+            terminals = (branch.source, branch.sink)
+            if terminals not in terminals_to_branches:
+                terminals_to_branches[terminals] = []
+            terminals_to_branches[terminals].append(branch)
+        
+        return [Branch(terminals[0], terminals[1], [reduce(lambda acc, c: acc | c, map(lambda b: b.components, branches), Parallel())]) if len(branches) > 1 else branches[0] for terminals, branches in terminals_to_branches.items()]
+
+    @staticmethod   
+    def reduce_circuit(initial_branches: list[Branch]) -> list[Branch]:
+        """
+        Reduce the circuit by combining branches in series and parallel.
+        """
+        # Reduce series branches
+        reduced_branches = CircuitSolver._reduce_series(initial_branches)
+        # Reduce parallel branches
+        reduced_branches = CircuitSolver._reduce_parallel(reduced_branches)
+        # Repeat until no more reductions can be made
+        series_next = True # Alternate between series and parallel reductions
+        branch_count = len(reduced_branches) 
+        while True:
+            if series_next:
+                reduced_branches = CircuitSolver._reduce_series(reduced_branches)
+            else:
+                reduced_branches = CircuitSolver._reduce_parallel(reduced_branches)
+            series_next = not series_next
+            if len(reduced_branches) == branch_count:
+                break
+            branch_count = len(reduced_branches)
+        return reduced_branches
+
     def _loss(self, omega: float) -> Value:
         """
         Calculates the loss for current values of node voltages (and fixed-voltage branch currents).
-        First, the net current going out of the node is calculated for each node
-        Second, these values are squared and an average is evaluated across all nodes
+        First, the net current going out of the node is calculated for each node.
+        Second, these values are squared and an average is evaluated across all nodes.
 
         Parameters:
         -----------
@@ -212,12 +310,12 @@ class CircuitSolver():
             self.node_currents[node_id] = 0.
         for j, branch in enumerate(self.branches):
             if branch.components.component_type == ComponentType.IDEAL_VOLTAGE_SOURCE:
-                branch.components.apply_current(self.branch_currents[j], recursive=False)
+                branch.components.apply_current(self.branch_currents[j] * branch.components.orientation, recursive=False)
             else:
                 voltage_diff = self.node_potentials[branch.source]-self.node_potentials[branch.sink]
-                branch.components.apply_voltage(voltage_diff, omega, recursive=False)
-            self.node_currents[branch.source] += branch.components.current
-            self.node_currents[branch.sink] -= branch.components.current
+                branch.components.apply_voltage(voltage_diff * branch.components.orientation, omega, recursive=False)
+            self.node_currents[branch.source] += branch.components.current * branch.components.orientation
+            self.node_currents[branch.sink] -= branch.components.current * branch.components.orientation
 
         return sum([abs(c) for c in self.node_currents.values()]) / len(self.node_currents)
 
@@ -235,15 +333,15 @@ class CircuitSolver():
             if branch.components.component_type == ComponentType.IDEAL_VOLTAGE_SOURCE:
                 continue
             voltage_diff = self.node_potentials[branch.source].data - self.node_potentials[branch.sink].data
-            branch.components.apply_voltage(voltage_diff, omega, recursive=True)
+            branch.components.apply_voltage(voltage_diff * branch.components.orientation, omega, recursive=True)
         for branch_id, current in self.branch_currents.items():
-            self.branches[branch_id].components.apply_current(current.data, omega, recursive=True)
+            self.branches[branch_id].components.apply_current(current.data * branch.components.orientation, omega, recursive=True)
 
     def state_at(self, label: str) -> tuple[complex, complex] | None:
         """
-        Query on electrical state of a component identified by a given label
+        Query on electrical state of a component identified by a given label.
         """
-        return None if label not in self.components or self.components[label].state is None else (CircuitSolver._round_complex(self.components[label].state[0]), CircuitSolver._round_complex(self.components[label].state[1]))
+        return None if label not in self.components or self.components[label]._state is None else (CircuitSolver._round_complex(self.components[label].current), CircuitSolver._round_complex(self.components[label].voltage))
     
     @staticmethod
     def _round_complex(value: complex, ndigits: int = 5) -> complex:

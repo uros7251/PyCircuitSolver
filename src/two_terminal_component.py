@@ -17,28 +17,29 @@ class TwoTerminalComponent():
     """
     Base class representing linear electric components with two terminals (ends). 
     """
-    characteristic: CurrentVoltageCharacteristic
-    state: tuple[complex, complex] | tuple[Value, Value]
-    omega: float
+    _characteristic: CurrentVoltageCharacteristic
+    _state: tuple[complex, complex] | tuple[Value, Value]
+    orientation: int = 1
+    omega: float = 0
     label: str
 
     def __init__(self, label: str) -> None:
         self.label = label
-        self.characteristic = None
+        self._characteristic = None
 
     @property
     def current(self) -> complex | Value:
         """
         Returns current flowing through the component.
         """
-        return self.state[0] if self.state else None
+        return self._state[0] if self._state else None
     
     @property
     def voltage(self) -> complex | Value:
         """
         Returns voltage difference between two terminals.
         """
-        return self.state[1] if self.state else None
+        return self._state[1] if self._state else None
     
     @property
     def component_type(self) -> ComponentType:
@@ -63,7 +64,7 @@ class TwoTerminalComponent():
         """
         pass
 
-    def current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
+    def current_voltage_characteristic(self, omega: float, with_orientation = False) -> CurrentVoltageCharacteristic:
         """
         Returns current-voltage characteristic. If it was already calculated earlier for the provided omega, it is not calculated again, but cached object is returned.
         
@@ -74,10 +75,10 @@ class TwoTerminalComponent():
         Returns:
         Current-voltage characteristic
         """
-        if self.characteristic is None or self.omega != omega:
+        if self._characteristic is None or self.omega != omega:
             self.omega = omega
-            self.characteristic = self.calculate_current_voltage_characteristic(omega)
-        return self.characteristic  
+            self._characteristic = self.calculate_current_voltage_characteristic(omega)
+        return ~self._characteristic if with_orientation and self.orientation == -1 else self._characteristic
     
     def apply_current(self, current: Value | complex, omega: float = 0, recursive: bool = True) -> None:
         """
@@ -92,7 +93,7 @@ class TwoTerminalComponent():
         recursive: bool
             Should a change of state of the component be propagated to its children? 
         """
-        self.state = (current,
+        self._state = (current,
                       self.current_voltage_characteristic(omega).voltage_at_current(current))
     
     def apply_voltage(self, voltage: Value | complex, omega: float = 0, recursive: bool = True) -> None:
@@ -108,13 +109,14 @@ class TwoTerminalComponent():
         recursive: bool
             Should a change of state of the component be propagated to its children? 
         """
-        self.state = (self.current_voltage_characteristic(omega).current_at_voltage(voltage),
+        self._state = (self.current_voltage_characteristic(omega).current_at_voltage(voltage),
                       voltage)
     
-    def reverse(self) -> 'TwoTerminalComponent':
+    def flip(self) -> 'TwoTerminalComponent':
         """
         Returns the component flipped.
         """
+        self.orientation = -1 * self.orientation
         return self
     
     def in_series_with(self, other) -> 'TwoTerminalComponent':
@@ -140,7 +142,7 @@ class TwoTerminalComponent():
         return Parallel().add_component(self).add_component(other)
     
     def __invert__(self):
-        return self.reverse()
+        return self.flip()
     
     def __and__(self, other):
         if not isinstance(other, TwoTerminalComponent):
@@ -214,11 +216,6 @@ class IdealVoltageSource(ComplexValuedTwoTerminalComponent):
     
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
         return CurrentVoltageCharacteristic(True, 0, self.value)
-    
-    def reverse(self):
-        self.value = -self.value
-        self.characteristic = None # force new calculation
-        return self
 
 class Ammeter(IdealVoltageSource):
     """
@@ -245,11 +242,6 @@ class IdealCurrentSource(ComplexValuedTwoTerminalComponent):
     
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
         return CurrentVoltageCharacteristic(False, 1, self.value)
-    
-    def reverse(self):
-        self.value = -self.value
-        self.characteristic = None # force new calculation
-        return self
 
 class Voltmeter(IdealCurrentSource):
     """
@@ -373,12 +365,12 @@ class Series(CompositeTwoTerminalComponent):
         
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
         if self.fixed_current_component:
-            return self.fixed_current_component.current_voltage_characteristic(omega)
+            return self.fixed_current_component.current_voltage_characteristic(omega, with_orientation=True)
         elif self.components is None:
             return CurrentVoltageCharacteristic.short_circuit()
         characterstic = CurrentVoltageCharacteristic.short_circuit()
         for component in self.components:
-            characterstic = characterstic & component.current_voltage_characteristic(omega)
+            characterstic = characterstic & component.current_voltage_characteristic(omega, with_orientation=True)
         return characterstic
     
     def apply_current(self, current: Value | complex, omega: float, recursive: bool = True):
@@ -388,26 +380,17 @@ class Series(CompositeTwoTerminalComponent):
         if not recursive:
             return
         for component in self.components:
-            component.apply_current(current, omega, recursive)
+            component.apply_current(current * component.orientation, omega, recursive)
 
     def apply_voltage(self, voltage: Value | complex, omega: float = 0, recursive: bool = True):
         super().apply_voltage(voltage, omega)
         if not recursive:
             return
         for component in self.components:
-            component.apply_current(self.current, omega)
-            voltage -= component.voltage
+            component.apply_current(self.current * component.orientation, omega)
+            voltage -= component.voltage * component.orientation
         if self.fixed_current_component:
-            self.fixed_current_component.apply_voltage(voltage, omega, recursive)
-
-    def reverse(self):
-        for component in self.components:
-            component.reverse()
-        if self.fixed_current_component:
-            self.fixed_current_component.reverse()
-        if self.characteristic:
-            self.characteristic = ~self.characteristic
-        return self
+            self.fixed_current_component.apply_voltage(voltage * self.fixed_current_component.orientation, omega, recursive)
 
     def in_series_with(self, other: TwoTerminalComponent):
         if other.component_type == ComponentType.SERIES:
@@ -457,12 +440,12 @@ class Parallel(CompositeTwoTerminalComponent):
         
     def calculate_current_voltage_characteristic(self, omega: float) -> CurrentVoltageCharacteristic:
         if self.fixed_voltage_component:
-            return self.fixed_voltage_component.current_voltage_characteristic(omega)
+            return self.fixed_voltage_component.current_voltage_characteristic(omega, with_orientation=True)
         elif self.components is None:
             return CurrentVoltageCharacteristic.open_circuit()
         characterstic = CurrentVoltageCharacteristic.open_circuit()
         for component in self.components:
-            characterstic = characterstic | component.current_voltage_characteristic(omega)
+            characterstic = characterstic | component.current_voltage_characteristic(omega, with_orientation=True)
         return characterstic
     
     def apply_current(self, current: Value | complex, omega: float, recursive: bool = True):
@@ -470,10 +453,10 @@ class Parallel(CompositeTwoTerminalComponent):
         if not recursive:
             return
         for component in self.components:
-            component.apply_voltage(self.voltage, omega, recursive)
-            current -= component.current
+            component.apply_voltage(self.voltage * component.orientation, omega, recursive)
+            current -= component.current * component.orientation
         if self.fixed_voltage_component:
-            self.fixed_voltage_component.apply_current(current, omega, recursive)
+            self.fixed_voltage_component.apply_current(current * component.orientation, omega, recursive)
 
     def apply_voltage(self, voltage: Value | complex, omega: float = 0, recursive: bool = True):
         if self.fixed_voltage_component:
@@ -482,16 +465,7 @@ class Parallel(CompositeTwoTerminalComponent):
         if not recursive:
             return
         for component in self.components:
-            component.apply_voltage(voltage, omega, recursive)
-
-    def reverse(self):
-        for component in self.components:
-            component.reverse()
-        if self.fixed_voltage_component:
-            self.fixed_voltage_component.reverse()
-        if self.characteristic:
-            self.characteristic = ~self.characteristic
-        return self
+            component.apply_voltage(voltage * component.orientation, omega, recursive)
 
     def in_parallel_with(self, other: TwoTerminalComponent):
         if other.component_type == ComponentType.PARALLEL:

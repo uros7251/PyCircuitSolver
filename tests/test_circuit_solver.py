@@ -22,7 +22,7 @@ class TestCircuitSolver():
             Branch(1,2,[r3]),
             Branch(2,3,[r4,~e1]),
             Branch(2,3,[r5]),
-            Branch(3,4, [j2])
+            Branch(3,4,[j2])
         ]
 
         circuit = CircuitSolver(branches=branches)
@@ -43,7 +43,7 @@ class TestCircuitSolver():
         assert isclose(r4.current, 40e-3/3)
         assert isclose(r4.voltage, 2./3)
 
-        assert isclose(e1.current, 40e-3/3)
+        assert isclose(e1.current, -40e-3/3)
 
         assert isclose(r5.current, -10e-3/3)
         assert isclose(r5.voltage, -1./3)
@@ -83,23 +83,23 @@ class TestCircuitSolver():
         assert isclose(e5.current, -5)
 
     def test_mitic_8_1(self):
+        z1 = Impedance('Z1', 0.5-1j)
+        z2 = Impedance('Z2', -2j)
         z3 = Impedance('Z3', 1)
         z5 = Impedance('Z5', 1j)
         z4 = Impedance('Z4', 1-0.5j)
-        z1 = Impedance('Z1', 0.5-1j)
-        z2 = Impedance('Z2', -2j)
 
-        e1 = IdealVoltageSource('E1', 3-2j)
-        e2 = IdealVoltageSource('E2', -1)
+        e1 = IdealVoltageSource('E1', -3+2j)
+        e2 = IdealVoltageSource('E2', 1)
         j = IdealCurrentSource('J', 1-1j)
 
         branches = [
             Branch(1, 2, [z4]),
             Branch(1, 3, [j, z2]),
-            Branch(1, 4, [~e1, z1]),
+            Branch(1, 4, [e1, z1]),
             Branch(2, 3, [z5]),
             Branch(2, 4, [z3]),
-            Branch(3, 4, [~e2])
+            Branch(3, 4, [e2])
         ]
 
         circuit = CircuitSolver(branches)
@@ -108,5 +108,7 @@ class TestCircuitSolver():
         assert isclose(z1.current, 1)
         assert isclose(z3.current, -1-1j)
         assert isclose(e2.current, 1j)
+        assert isclose(e1.current, 1)
         assert isclose(z4.current, -2+1j)
         assert isclose(z5.current, -1+2j)
+        assert isclose(j.voltage, -1.5+3j)

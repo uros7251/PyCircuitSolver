@@ -64,12 +64,16 @@ class TestTwoTerminalComponent():
         assert isclose(r4.current, 40e-3/3)
         assert isclose(r4.voltage, 2./3)
 
-        assert isclose(e1.current, 40e-3/3)
+        # the current through e1 is the same as the current through r4, only the sign is different because of different reference direction
+        assert isclose(e1.current, -40e-3/3)
 
         assert isclose(r5.current, -10e-3/3)
         assert isclose(r5.voltage, -1./3)
 
         assert isclose(j2.voltage, -11./3)
+
+        components = sorted([c.label for c in circuit])
+        assert components == ['E1', 'J1', 'J2', 'R1', 'R2', 'R3', 'R4', 'R5'], "Components are not enumerated correctly"
 
     def test_mitic_7_28(self):
         x_c = Impedance('X_C', -4j)
@@ -87,6 +91,4 @@ class TestTwoTerminalComponent():
         I1_2 = e1.current / r2.current
 
         assert isclose(abs(I1_2), 3.3)
-        assert isclose(phase(I1_2), -pi/2)
-
-#TestTwoTerminalComponent().test_mitic_7_28()
+        assert isclose(abs(phase(I1_2)), pi/2)
